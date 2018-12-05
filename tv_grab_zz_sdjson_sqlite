@@ -44,6 +44,7 @@
 #
 # Version history:
 #
+# 2018/12/04 - 1.61 - download artwork.
 # 2018/11/10 - 1.60 - include subscription info in additional paths
 # 2018/11/03 - 1.59 - additional protection against bad data
 # 2018/10/30 - 1.58 - initial protections against bad data
@@ -1705,6 +1706,50 @@ $w->startTag('tv',
               {
                 $w->emptyTag('icon', 'src' => $url);
               }
+          }
+       elsif (defined($programDetails->{'hasImageArtwork'}) &&
+               $programDetails->{'hasImageArtwork'})
+          {
+            my $programId = $programDetails->{'programID'};
+            my $metadata = $SD->obtainMetadata($programId)->[0];
+            my $best = $SD->selectImageFromMetadata($metadata);
+
+            if($best) {
+              my $url = $SD->uriResolve($best->{'uri'}, '/image');
+              if (defined($best->{'width'}) &&
+                  defined($best->{'height'}))
+                {
+                  $w->emptyTag('icon', 'src' => $url,
+                                    'width' => $best->{'width'},
+                                    'height' => $best->{'height'});
+                }
+              else
+                {
+                  $w->emptyTag('icon', 'src' => $url);
+                }  
+            }                 
+          }
+          elsif (defined($supplementalDetails->{'hasImageArtwork'}) &&
+                   $supplementalDetails->{'hasImageArtwork'})
+          {
+            my $programId = $supplementalDetails->{'programID'};
+            my $metadata = $SD->obtainMetadata($programId)->[0];
+            my $best = $SD->selectImageFromMetadata($metadata);
+
+            if($best) {
+              my $url = $SD->uriResolve($best->{'uri'}, '/image');
+              if (defined($best->{'width'}) &&
+                  defined($best->{'height'}))
+                {
+                  $w->emptyTag('icon', 'src' => $url,
+                                    'width' => $best->{'width'},
+                                    'height' => $best->{'height'});
+                }
+              else
+                {
+                  $w->emptyTag('icon', 'src' => $url);
+                }  
+            }                 
           }
 
         if (defined($programDetails->{'officialURL'}))
@@ -5745,6 +5790,7 @@ package SchedulesDirect v20141201.0.0;
 # obtainStationsSchedules      - return stations schedules
 # obtainStationsSchedulesHash  - return stations schedules hash
 # obtainPrograms               - return program data for programs
+# obtainMetadata               - return program metadata
 # obtainAvailable              - return available counties/satellites
 # deleteMessage                - delete message
 # uriResolve                   - convert uri to absolute
@@ -6955,6 +7001,156 @@ sub obtainPrograms
 
     print (STDERR "DEBUG: Returning from " . (caller(0))[3] . " with: \n" . Data::Dumper->new([$return])->Pad('DEBUG:   ')->Useqq(1)->Dump) if ($self->{'Debug'});
     return $return;
+  }
+
+#
+# obtainMetadata
+#
+sub obtainMetadata
+  {
+    my $self = shift;
+
+    print (STDERR "DEBUG: Entering " . (caller(0))[3] . " with args: \n" . Data::Dumper->new(\@_)->Pad('DEBUG:   ')->Useqq(1)->Dump) if ($self->{'Debug'});
+
+    my $return;
+
+    my (@programIDs) = @_;
+
+    $self->_resetError;
+
+    if (!$self->isOnline)
+      {
+        if ($self->{'_Error'})
+          {
+            $return = undef;
+            print (STDERR "DEBUG: Returning from " . (caller(0))[3] . " with: \n" . Data::Dumper->new([$return])->Pad('DEBUG:   ')->Useqq(1)->Dump) if ($self->{'Debug'});
+            return $return;
+          }
+        $return = undef;
+        $self->_setErrorString("Schedules Direct web services is not online");
+        $self->_CroakOrCarp;
+        print (STDERR "DEBUG: Returning from " . (caller(0))[3] . " with: \n" . Data::Dumper->new([$return])->Pad('DEBUG:   ')->Useqq(1)->Dump) if ($self->{'Debug'});
+        return $return;
+      }
+
+    if (scalar(@programIDs) == 0)
+      {
+        $return = [];
+        print (STDERR "DEBUG: Returning from " . (caller(0))[3] . " with: \n" . Data::Dumper->new([$return])->Pad('DEBUG:   ')->Useqq(1)->Dump) if ($self->{'Debug'});
+        return $return;
+      }
+
+    my $request = HTTP::Request->new(POST => "$self->{'RESTUrl'}/metadata/programs");
+
+    $request->content($self->{'_JSON'}->encode(\@programIDs));
+
+    print (STDERR "DEBUG:   HTTP request:\n" . Data::Dumper->new([$request])->Pad('DEBUG:   ')->Useqq(1)->Dump) if ($self->{'Debug'});
+
+    my $response = $self->{'_LWP'}->request($request);
+
+    print (STDERR "DEBUG:   HTTP response:\n" . Data::Dumper->new([$response])->Pad('DEBUG:   ')->Useqq(1)->Dump) if ($self->{'Debug'});
+
+    my $responseCode = $response->code();
+    my $responseContent = $response->decoded_content();
+
+    print (STDERR "DEBUG:   HTTP decoded response content:\n" . Data::Dumper->new([$responseContent])->Pad('DEBUG:   ')->Useqq(1)->Dump) if ($self->{'Debug'});
+
+    if ($responseCode != 200)
+      {
+        $return = undef;
+        $self->_setErrorString("HTTP response code was not successful ($responseCode)");
+        $self->_CroakOrCarp;
+        print (STDERR "DEBUG: Returning from " . (caller(0))[3] . " with: \n" . Data::Dumper->new([$return])->Pad('DEBUG:   ')->Useqq(1)->Dump) if ($self->{'Debug'});
+        return $return;
+      }
+
+    if (!defined($responseContent))
+      {
+        $return = undef;
+        $self->_setErrorString("HTTP response content could not be decoded");
+        $self->_CroakOrCarp;
+        print (STDERR "DEBUG: Returning from " . (caller(0))[3] . " with: \n" . Data::Dumper->new([$return])->Pad('DEBUG:   ')->Useqq(1)->Dump) if ($self->{'Debug'});
+        return $return;
+      }
+
+    if ($responseContent eq '')
+      {
+        $return = undef;
+        $self->_setErrorString("HTTP response content was empty");
+        $self->_CroakOrCarp;
+        print (STDERR "DEBUG: Returning from " . (caller(0))[3] . " with: \n" . Data::Dumper->new([$return])->Pad('DEBUG:   ')->Useqq(1)->Dump) if ($self->{'Debug'});
+        return $return;
+      }
+
+    my $r = eval { $self->{'_JSON'}->convert_blessed->decode($responseContent) };
+
+    if (!defined($r))
+      {
+        $return = undef;
+        $self->_setErrorString("HTTP response content was not parseable: $responseContent");
+        $self->_CroakOrCarp;
+        print (STDERR "DEBUG: Returning from " . (caller(0))[3] . " with: \n" . Data::Dumper->new([$return])->Pad('DEBUG:   ')->Useqq(1)->Dump) if ($self->{'Debug'});
+        return $return;
+      }
+
+    $return = $r;
+
+    print (STDERR "DEBUG: Returning from " . (caller(0))[3] . " with: \n" . Data::Dumper->new([$return])->Pad('DEBUG:   ')->Useqq(1)->Dump) if ($self->{'Debug'});
+    return $return;
+  }
+
+#
+# selectImageFromMetadata
+#
+sub selectImageFromMetadata
+  {
+    my $self = shift;
+
+    print (STDERR "DEBUG: Entering " . (caller(0))[3] . " with args: \n" . Data::Dumper->new(\@_)->Pad('DEBUG:   ')->Useqq(1)->Dump) if ($self->{'Debug'});
+
+    my ($metadata) = @_;
+    my $best;
+
+    if(defined($metadata->{'data'}) and ref($metadata->{'data'}) eq 'ARRAY') {
+      $best = $metadata->{'data'}->[0];
+      my $prio = 0;
+      my $bestprio = 0;
+      # This is horrid.. needs to be much smarter but there's no documentation
+      # how to pick a standard/medium sized icon, just a list of essentially random sizes with
+      # undocumented 'size' attributes, and some have aspect ratio some don't..
+      foreach my $item (@{ $metadata->{'data'} }) {
+        if($item->{'category'} eq 'Staple') {
+          $prio = 1;
+        }
+        elsif($item->{'category'} eq 'Iconic') {
+          $prio = 2;
+        }
+        elsif($item->{'category'} eq 'Banner-LOT') {
+          $prio = 3;
+        }
+        elsif($item->{'category'} eq 'Banner-LO') {
+          $prio = 4;
+        }
+        elsif($item->{'category'} eq 'Banner-l3') {
+          $prio = 5;
+        }
+        elsif($item->{'category'} eq 'Banner-L2') {
+          $prio = 6;
+        }
+        elsif($item->{'category'} eq 'Banner-L1') {
+          $prio = 7;
+        }
+        elsif($item->{'category'} eq 'Banner') {
+          $prio = 8;
+        }
+
+        if($prio > $bestprio) {
+          $best = $item;
+          $bestprio = $prio;
+        }
+      }
+      return $best;
+    }
   }
 
 #
